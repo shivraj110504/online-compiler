@@ -84,7 +84,7 @@ public class ExecutionService {
             pb.redirectErrorStream(true);
 
             Process process = pb.start();
-            boolean finished = process.waitFor(10, TimeUnit.SECONDS); // Increased timeout for warm-up
+            boolean finished = process.waitFor(15, TimeUnit.SECONDS); // Increased timeout for slow Render instances
             if (!finished) {
                 process.destroyForcibly();
                 return new CodeExecutionResponse("", "Time Limit Exceeded", "TLE", 10000);
