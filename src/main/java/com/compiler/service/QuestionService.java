@@ -6,6 +6,7 @@ import com.compiler.repository.QuestionRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.stream.Collectors;
 
 @Service
@@ -13,6 +14,16 @@ import java.util.stream.Collectors;
 public class QuestionService {
 
     private final QuestionRepository repository;
+
+    // READ ALL
+    public List<Question> getAll() {
+        return repository.findAll();
+    }
+
+    // READ BY SLUG
+    public Question getBySlug(String slug) {
+        return repository.findBySlug(slug).orElse(null);
+    }
 
     // CREATE
     public Question create(CreateQuestionRequest request) {
