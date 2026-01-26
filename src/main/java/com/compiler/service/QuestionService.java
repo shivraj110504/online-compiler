@@ -25,6 +25,11 @@ public class QuestionService {
         return repository.findBySlug(slug).orElse(null);
     }
 
+    // DELETE
+    public void delete(String id) {
+        repository.deleteById(id);
+    }
+
     // CREATE
     public Question create(CreateQuestionRequest request) {
         Question question = mapToEntity(new Question(), request);

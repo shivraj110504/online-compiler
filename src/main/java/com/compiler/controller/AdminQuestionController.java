@@ -31,4 +31,9 @@ public class AdminQuestionController {
             @RequestBody CreateQuestionRequest request) {
         return service.updateQuestion(id, request);
     }
+
+    @DeleteMapping("/{id}")
+    public void deleteQuestion(@PathVariable String id) {
+        service.delete(id);
+    }
 }
