@@ -25,6 +25,7 @@ public class Question {
     private List<String> constraints;
     private List<TestCase> examples;
     private Map<String, String> starterCode;
+    private Map<String, String> hiddenCode;
 
     // Evaluation test cases (can include hidden ones)
     private List<TestCase> testCases;

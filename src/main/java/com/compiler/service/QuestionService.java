@@ -58,6 +58,7 @@ public class QuestionService {
         question.setOutputFormat(request.getOutputFormat());
         question.setConstraints(request.getConstraints());
         question.setStarterCode(request.getStarterCode());
+        question.setHiddenCode(request.getHiddenCode());
 
         if (request.getExamples() != null) {
             question.setExamples(request.getExamples().stream()

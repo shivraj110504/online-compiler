@@ -20,6 +20,7 @@ public class CreateQuestionRequest {
     private List<TestCaseDto> examples;
     private List<TestCaseDto> testCases;
     private Map<String, String> starterCode;
+    private Map<String, String> hiddenCode;
 
     @Data
     public static class TestCaseDto {

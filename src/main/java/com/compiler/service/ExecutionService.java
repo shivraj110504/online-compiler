@@ -3,17 +3,36 @@ package com.compiler.service;
 import com.compiler.config.LanguageConfig;
 import com.compiler.model.CodeExecutionRequest;
 import com.compiler.model.CodeExecutionResponse;
+import com.compiler.model.Question;
+import com.compiler.repository.QuestionRepository;
 import com.compiler.util.FileUtil;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 @Service
+@RequiredArgsConstructor
 public class ExecutionService {
+
+    private final QuestionRepository questionRepository;
 
     public CodeExecutionResponse execute(CodeExecutionRequest request) {
         long startTime = System.currentTimeMillis();
+        String finalCode = request.getCode();
+
+        // Handle Code Wrapping (LeetCode-style)
+        if (request.getQuestionId() != null && !request.getQuestionId().isEmpty()) {
+            Question question = questionRepository.findById(request.getQuestionId()).orElse(null);
+            if (question != null && question.getHiddenCode() != null) {
+                String language = request.getLanguage().toLowerCase();
+                String wrapper = question.getHiddenCode().get(language);
+                if (wrapper != null && wrapper.contains("{{USER_CODE}}")) {
+                    finalCode = wrapper.replace("{{USER_CODE}}", request.getCode());
+                }
+            }
+        }
 
         try {
             LanguageConfig lang = LanguageConfig.valueOf(request.getLanguage().toUpperCase());
@@ -22,7 +41,7 @@ public class ExecutionService {
             Path codeFile = workDir.resolve(lang.getFileName());
             Path inputFile = workDir.resolve("input.txt");
 
-            FileUtil.writeFile(codeFile, request.getCode());
+            FileUtil.writeFile(codeFile, finalCode);
             FileUtil.writeFile(inputFile, request.getInput() != null ? request.getInput() : "");
 
             // Compile + run command inside container
