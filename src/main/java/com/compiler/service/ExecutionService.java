@@ -1,17 +1,16 @@
 package com.compiler.service;
 
 import com.compiler.config.LanguageConfig;
-import com.compiler.model.CodeExecutionRequest;
-import com.compiler.model.CodeExecutionResponse;
-import com.compiler.model.BatchCodeExecutionRequest;
-import com.compiler.model.BatchCodeExecutionResponse;
-import com.compiler.model.Question;
+import com.compiler.model.*;
 import com.compiler.repository.QuestionRepository;
 import com.compiler.util.FileUtil;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 @Service
@@ -28,15 +27,14 @@ public class ExecutionService {
         if (request.getQuestionId() != null && !request.getQuestionId().isEmpty()) {
             Question question = questionRepository.findById(request.getQuestionId()).orElse(null);
             if (question != null && question.getHiddenCode() != null) {
-                String language = request.getLanguage().toLowerCase();
-                String wrapper = question.getHiddenCode().get(language);
+                String wrapper = question.getHiddenCode().get(request.getLanguage().toLowerCase());
                 if (wrapper != null && wrapper.contains("{{USER_CODE}}")) {
                     finalCode = wrapper.replace("{{USER_CODE}}", request.getCode());
                 }
             }
         }
 
-        java.util.List<CodeExecutionResponse> results = new java.util.ArrayList<>();
+        List<CodeExecutionResponse> results = new ArrayList<>();
         try {
             LanguageConfig lang = LanguageConfig.valueOf(request.getLanguage().toUpperCase());
             Path workDir = FileUtil.createTempDir();
@@ -61,9 +59,9 @@ public class ExecutionService {
                 }
 
                 Process compileProcess = new ProcessBuilder(finalCompileCmd).directory(workDir.toFile()).start();
-                if (!compileProcess.waitFor(10, TimeUnit.SECONDS)) {
+                if (!compileProcess.waitFor(30, TimeUnit.SECONDS)) {
                     compileProcess.destroyForcibly();
-                    throw new RuntimeException("Compilation Timeout");
+                    throw new RuntimeException("Compilation Timeout (took more than 30s)");
                 }
                 if (compileProcess.exitValue() != 0) {
                     String compileError = new String(compileProcess.getErrorStream().readAllBytes());
@@ -78,7 +76,11 @@ public class ExecutionService {
                 Path inputFile = workDir.resolve("input.txt");
                 FileUtil.writeFile(inputFile, input != null ? input : "");
 
-                String runCmd = String.format("%s < input.txt", lang.getRunCommand());
+                String baseRunCmd = lang.getRunCommand();
+                if (request.getLanguage().equalsIgnoreCase("JAVA") && !baseRunCmd.contains("-Xmx")) {
+                    baseRunCmd = "java -Xmx128m -Xss512k Main";
+                }
+                String runCmd = String.format("%s < input.txt", baseRunCmd);
                 runCmd = runCmd.replace("\"", "\\\"");
 
                 String runtimeEnv = System.getenv("RUNTIME_ENVIRONMENT");
@@ -97,9 +99,9 @@ public class ExecutionService {
 
                 Process runProcess = new ProcessBuilder(finalRunCmd).directory(workDir.toFile())
                         .redirectErrorStream(true).start();
-                if (!runProcess.waitFor(5, TimeUnit.SECONDS)) {
+                if (!runProcess.waitFor(15, TimeUnit.SECONDS)) {
                     runProcess.destroyForcibly();
-                    results.add(new CodeExecutionResponse("", "Time Limit Exceeded", "TLE", 5000));
+                    results.add(new CodeExecutionResponse("", "Time Limit Exceeded", "TLE", 15000));
                     continue;
                 }
 

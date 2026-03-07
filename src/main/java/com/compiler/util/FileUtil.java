@@ -6,9 +6,12 @@ import java.nio.file.Path;
 
 public class FileUtil {
     public static Path createTempDir() throws IOException {
+        Path shm = Path.of("/dev/shm");
+        if (Files.exists(shm) && Files.isWritable(shm)) {
+            return Files.createTempDirectory(shm, "exec-");
+        }
         return Files.createTempDirectory("exec-");
     }
-
 
     public static void writeFile(Path path, String content) throws IOException {
         Files.writeString(path, content == null ? "" : content);
