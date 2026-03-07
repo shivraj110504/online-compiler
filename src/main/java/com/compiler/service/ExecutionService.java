@@ -3,6 +3,8 @@ package com.compiler.service;
 import com.compiler.config.LanguageConfig;
 import com.compiler.model.CodeExecutionRequest;
 import com.compiler.model.CodeExecutionResponse;
+import com.compiler.model.BatchCodeExecutionRequest;
+import com.compiler.model.BatchCodeExecutionResponse;
 import com.compiler.model.Question;
 import com.compiler.repository.QuestionRepository;
 import com.compiler.util.FileUtil;
@@ -18,11 +20,11 @@ public class ExecutionService {
 
     private final QuestionRepository questionRepository;
 
-    public CodeExecutionResponse execute(CodeExecutionRequest request) {
+    public BatchCodeExecutionResponse executeBatch(BatchCodeExecutionRequest request) {
         long startTime = System.currentTimeMillis();
         String finalCode = request.getCode();
 
-        // Handle Code Wrapping (LeetCode-style)
+        // Handle Code Wrapping (once per batch)
         if (request.getQuestionId() != null && !request.getQuestionId().isEmpty()) {
             Question question = questionRepository.findById(request.getQuestionId()).orElse(null);
             if (question != null && question.getHiddenCode() != null) {
@@ -34,71 +36,96 @@ public class ExecutionService {
             }
         }
 
+        java.util.List<CodeExecutionResponse> results = new java.util.ArrayList<>();
         try {
             LanguageConfig lang = LanguageConfig.valueOf(request.getLanguage().toUpperCase());
-
             Path workDir = FileUtil.createTempDir();
             Path codeFile = workDir.resolve(lang.getFileName());
-            Path inputFile = workDir.resolve("input.txt");
-
             FileUtil.writeFile(codeFile, finalCode);
-            FileUtil.writeFile(inputFile, request.getInput() != null ? request.getInput() : "");
 
-            // Compile + run command inside container
-            String containerCmd;
+            // 1. Single Compilation (if applicable)
             if (lang.getCompileCommand() != null) {
-                containerCmd = String.format("%s && %s < input.txt", lang.getCompileCommand(), lang.getRunCommand());
-            } else {
-                containerCmd = String.format("%s < input.txt", lang.getRunCommand());
+                String compileCmd = lang.getCompileCommand();
+                String runtimeEnv = System.getenv("RUNTIME_ENVIRONMENT");
+                boolean useDocker = (runtimeEnv == null || !runtimeEnv.equalsIgnoreCase("CONTAINER"));
+
+                String[] finalCompileCmd;
+                if (useDocker) {
+                    finalCompileCmd = new String[] {
+                            "docker", "run", "--rm", "-v",
+                            workDir.toAbsolutePath().toString().replace("\\", "/") + ":/app",
+                            "-w", "/app", lang.getImage(), "/bin/bash", "-c", compileCmd
+                    };
+                } else {
+                    finalCompileCmd = new String[] { "/bin/bash", "-c", compileCmd };
+                }
+
+                Process compileProcess = new ProcessBuilder(finalCompileCmd).directory(workDir.toFile()).start();
+                if (!compileProcess.waitFor(10, TimeUnit.SECONDS)) {
+                    compileProcess.destroyForcibly();
+                    throw new RuntimeException("Compilation Timeout");
+                }
+                if (compileProcess.exitValue() != 0) {
+                    String compileError = new String(compileProcess.getErrorStream().readAllBytes());
+                    results.add(new CodeExecutionResponse("", compileError, "ERROR", 0));
+                    return new BatchCodeExecutionResponse(results, System.currentTimeMillis() - startTime);
+                }
             }
 
-            // Escape quotes for bash
-            containerCmd = containerCmd.replace("\"", "\\\"");
+            // 2. Run all inputs using the compiled binary/script
+            for (String input : request.getInputs()) {
+                long inputStartTime = System.currentTimeMillis();
+                Path inputFile = workDir.resolve("input.txt");
+                FileUtil.writeFile(inputFile, input != null ? input : "");
 
-            // Determine if we should use Docker or run directly (for Render)
-            String runtimeEnv = System.getenv("RUNTIME_ENVIRONMENT");
-            boolean useDocker = (runtimeEnv == null || !runtimeEnv.equalsIgnoreCase("CONTAINER"));
+                String runCmd = String.format("%s < input.txt", lang.getRunCommand());
+                runCmd = runCmd.replace("\"", "\\\"");
 
-            String[] finalCmd;
-            if (useDocker) {
-                // Full docker command
-                finalCmd = new String[] {
-                        "docker", "run", "--rm",
-                        "--network=none",
-                        "--memory=256m", "--cpus=0.5",
-                        "--pids-limit", "64",
-                        "--cap-drop", "ALL",
-                        "--read-only",
-                        "-v", workDir.toAbsolutePath().toString().replace("\\", "/") + ":/app",
-                        "-w", "/app",
-                        lang.getImage(),
-                        "/bin/bash", "-c", containerCmd
-                };
-            } else {
-                // Direct execution inside the same container (for Render/Deployment)
-                finalCmd = new String[] { "/bin/bash", "-c", containerCmd };
+                String runtimeEnv = System.getenv("RUNTIME_ENVIRONMENT");
+                boolean useDocker = (runtimeEnv == null || !runtimeEnv.equalsIgnoreCase("CONTAINER"));
+
+                String[] finalRunCmd;
+                if (useDocker) {
+                    finalRunCmd = new String[] {
+                            "docker", "run", "--rm", "--network=none", "--memory=256m", "--cpus=0.5",
+                            "-v", workDir.toAbsolutePath().toString().replace("\\", "/") + ":/app",
+                            "-w", "/app", lang.getImage(), "/bin/bash", "-c", runCmd
+                    };
+                } else {
+                    finalRunCmd = new String[] { "/bin/bash", "-c", runCmd };
+                }
+
+                Process runProcess = new ProcessBuilder(finalRunCmd).directory(workDir.toFile())
+                        .redirectErrorStream(true).start();
+                if (!runProcess.waitFor(5, TimeUnit.SECONDS)) {
+                    runProcess.destroyForcibly();
+                    results.add(new CodeExecutionResponse("", "Time Limit Exceeded", "TLE", 5000));
+                    continue;
+                }
+
+                String output = new String(runProcess.getInputStream().readAllBytes());
+                results.add(
+                        new CodeExecutionResponse(output, "", "SUCCESS", System.currentTimeMillis() - inputStartTime));
             }
-
-            ProcessBuilder pb = new ProcessBuilder(finalCmd);
-            pb.directory(workDir.toFile());
-            pb.redirectErrorStream(true);
-
-            Process process = pb.start();
-            boolean finished = process.waitFor(15, TimeUnit.SECONDS); // Increased timeout for slow Render instances
-            if (!finished) {
-                process.destroyForcibly();
-                return new CodeExecutionResponse("", "Time Limit Exceeded", "TLE", 10000);
-            }
-
-            String output = new String(process.getInputStream().readAllBytes());
-            long time = System.currentTimeMillis() - startTime;
-
-            return new CodeExecutionResponse(output, "", "SUCCESS", time);
-
         } catch (Exception e) {
-            // Return the error for debugging
-            long time = System.currentTimeMillis() - startTime;
-            return new CodeExecutionResponse("", e.getMessage(), "ERROR", time);
+            results.add(new CodeExecutionResponse("", e.getMessage(), "ERROR", 0));
         }
+
+        return new BatchCodeExecutionResponse(results, System.currentTimeMillis() - startTime);
+    }
+
+    public CodeExecutionResponse execute(CodeExecutionRequest request) {
+        // Fallback or wrapper for single execution using the batch logic
+        BatchCodeExecutionRequest batchRequest = new BatchCodeExecutionRequest();
+        batchRequest.setLanguage(request.getLanguage());
+        batchRequest.setCode(request.getCode());
+        batchRequest.setInputs(java.util.Collections.singletonList(request.getInput()));
+        batchRequest.setQuestionId(request.getQuestionId());
+
+        BatchCodeExecutionResponse batchResponse = executeBatch(batchRequest);
+        if (batchResponse.getResults().isEmpty()) {
+            return new CodeExecutionResponse("", "Internal Error", "ERROR", 0);
+        }
+        return batchResponse.getResults().get(0);
     }
 }

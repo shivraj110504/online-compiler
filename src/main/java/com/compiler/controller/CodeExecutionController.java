@@ -2,6 +2,8 @@ package com.compiler.controller;
 
 import com.compiler.model.CodeExecutionRequest;
 import com.compiler.model.CodeExecutionResponse;
+import com.compiler.model.BatchCodeExecutionRequest;
+import com.compiler.model.BatchCodeExecutionResponse;
 import com.compiler.service.ExecutionService;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -17,10 +19,15 @@ public class CodeExecutionController {
         this.executionService = executionService;
     }
 
-
     @PostMapping
     public CodeExecutionResponse execute(@RequestBody CodeExecutionRequest request)
             throws Exception {
         return executionService.execute(request);
+    }
+
+    @PostMapping("/batch")
+    public BatchCodeExecutionResponse executeBatch(@RequestBody BatchCodeExecutionRequest request)
+            throws Exception {
+        return executionService.executeBatch(request);
     }
 }
