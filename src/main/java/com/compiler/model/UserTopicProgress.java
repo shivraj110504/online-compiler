@@ -13,16 +13,12 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-@Document(collection = "submissions")
-public class Submission {
+@Document(collection = "user_topic_progress")
+public class UserTopicProgress {
     @Id
     private String id;
     private String userId;
-    private String userEmail;
+    private String topicId;
     private String questionId;
-    private String questionSlug;
-    private String topicId; // Optional: context in which the problem was solved
-    private String language;
-    private String status; // e.g., "ACCEPTED", "WA", "TLE", "ERROR"
-    private LocalDateTime timestamp;
+    private LocalDateTime completedAt;
 }
